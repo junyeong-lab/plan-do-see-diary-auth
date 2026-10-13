@@ -400,8 +400,12 @@ signupBtn.addEventListener("click",async()=>{
  authStatus.textContent="가입 처리 중...";
  const {data,error}=await client.auth.signUp({email,password});
  if(error)return showLoggedOut("가입 실패: "+error.message);
+ // Supabase can return an obfuscated user without identities for an existing email.
+ if(data.user && Array.isArray(data.user.identities) && data.user.identities.length===0){
+  return showLoggedOut("이미 가입된 이메일입니다. 로그인해주세요.");
+ }
  if(data.session) await showLoggedIn(data.user);
- else showLoggedOut("가입 완료. 이메일 확인이 필요한 설정이면 확인 후 로그인해주세요.");
+ else showLoggedOut("가입 요청을 처리했습니다. 확인 이메일을 받았다면 인증 후 로그인해주세요.");
 });
 logoutBtn.addEventListener("click",async()=>{
  await client.auth.signOut();
