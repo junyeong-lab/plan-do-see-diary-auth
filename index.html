@@ -89,7 +89,7 @@ button{padding:7px 10px;border:1px solid #bbb;border-radius:8px;background:#fff;
   <p class="meta">실제시간은 시작·종료시간의 차이로 자동 계산됩니다.</p>
 </form>
 <div id="executions"></div></section>
-<section class="panel"><h2>SEE</h2><div id="metrics" class="grid"></div>
+<section class="panel"><h2>SEE</h2><div id="metrics" class="grid"></div><div id="studyMetrics" class="card"></div>
 <p class="meta">집계 기준: 삭제되지 않은 Task · 완료는 현재 completed 상태 · 기한초과는 미완료이면서 오늘보다 이전 마감일 · 막힘은 blocker_reason이 있는 Task · 시간 단위는 분</p>
 <div class="card">
   <h3>다음 계획에 반영할 개선점</h3>
@@ -138,6 +138,7 @@ async function load(){
   document.querySelector("#tasks").innerHTML="";
   document.querySelector("#executions").innerHTML="";
   document.querySelector("#metrics").innerHTML="";
+   document.querySelector("#studyMetrics").innerHTML="";
   document.querySelector("#execTask").innerHTML="";
   document.querySelector("#taskSuggestions").innerHTML="";
   document.querySelector("#reviewStatus").textContent="저장된 개선점이 없습니다.";
@@ -153,7 +154,7 @@ async function load(){
  document.querySelector("#planHistory").innerHTML=`<div class="card" style="margin-top:12px"><h3>계획 수정 이력</h3>
  ${historyRows.length?`<table><thead><tr><th>Revision</th><th>기간</th><th>우선순위</th><th>성공 기준</th><th>예상시간</th></tr></thead><tbody>${historyRows.map(x=>`<tr><td>${Number(x.revision_no)}</td><td>${esc(x.start_date)} ~ ${esc(x.end_date)}</td><td>${esc(x.priority)}</td><td>${esc(x.success_criteria)}</td><td>${Number(x.estimated_minutes||0)}분</td></tr>`).join("")}</tbody></table>`:"<p>저장된 이전 revision이 없습니다.</p>"}
  <p class="meta">현재 revision ${Number(p.data.current_revision||1)}은 위 PLAN에 표시되며, 수정 전 내용은 이력으로 보존됩니다.</p></div>`;
- renderTasks(); renderExec(); renderSee();
+ renderTasks(); renderExec(); renderSee(); renderStudyMetrics();
  if(r.data){
    improvement.value=r.data.improvement||"";
    nextPlanId.value=r.data.next_plan_id||"";
@@ -184,6 +185,22 @@ function renderSee(){
   ["차이",(act-est)+"분","delta"]
  ];
  metrics.innerHTML=items.map(x=>`<button type="button" class="card metric-card" onclick="showMetricSource('${x[2]}')" style="text-align:left;cursor:pointer;width:100%"><div class="meta">${x[0]} · 클릭해 근거 보기</div><div class="metric">${x[1]}</div></button>`).join("");
+}
+
+function renderStudyMetrics(){
+ const rows=allTasks.filter(t=>/^T07 [1-5]일차 (기록|운동)$/.test(t.title)&&t.due_date>="2026-10-09"&&t.due_date<="2026-10-13").sort((a,b)=>a.due_date.localeCompare(b.due_date)).map(t=>{
+  const logs=executions.filter(e=>e.task_id===t.id);
+  if(logs.length!==1)return null;
+  const expected=Number(t.estimated_minutes), actual=Number(logs[0].actual_minutes);
+  if(!Number.isFinite(expected)||!Number.isFinite(actual))return null;
+  return {date:t.due_date,expected,actual,error:Math.abs(actual-expected)};
+ }).filter(Boolean);
+ const totalExpected=rows.reduce((s,x)=>s+x.expected,0),totalActual=rows.reduce((s,x)=>s+x.actual,0),totalError=rows.reduce((s,x)=>s+x.error,0);
+ studyMetrics.innerHTML='<h3>T07 5일 운동시간 오차 검증</h3><p class="meta">지표: ABS(실제시간 - 예상시간), 단위 분 · 결측/중복 실행 기록은 집계 제외 후 별도 확인 · 이상치는 원본 유지 · 평균 소수 둘째 자리 반올림 · 주 시작 월요일</p>'+
+ '<table><thead><tr><th>날짜</th><th>예상</th><th>실제</th><th>절대오차</th></tr></thead><tbody>'+
+ rows.map(x=>`<tr><td>${esc(x.date)}</td><td>${x.expected}분</td><td>${x.actual}분</td><td>${x.error}분</td></tr>`).join('')+
+ `</tbody></table><p><strong>집계 ${rows.length}/5일</strong> · 예상 합계 ${totalExpected}분 · 실제 합계 ${totalActual}분 · 절대오차 합계 ${totalError}분 · 평균 절대오차 ${rows.length?(totalError/rows.length).toFixed(2):"-"}분</p>`+
+ '<p class="meta">2일차 예상시간은 운동 후 입력되었으므로 사전 예측 성능으로 해석하지 않습니다.</p>';
 }
 
 function showMetricSource(kind){
