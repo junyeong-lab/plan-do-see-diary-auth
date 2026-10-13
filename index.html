@@ -123,13 +123,26 @@ async function load(){
  if(!currentUser)return;
  const statusEl=document.querySelector("#status");
  const [p,t,e,r,h]=await Promise.all([
-  client.from("plans").select("*").eq("id",PLAN_ID).eq("user_id",currentUser.id).single(),
+  client.from("plans").select("*").eq("id",PLAN_ID).eq("user_id",currentUser.id).maybeSingle(),
   client.from("tasks").select("*").eq("plan_id",PLAN_ID).eq("user_id",currentUser.id).is("deleted_at",null),
   client.from("execution_records").select("*").eq("user_id",currentUser.id).order("started_at",{ascending:true}),
   client.from("reviews").select("*").eq("plan_id",PLAN_ID).eq("user_id",currentUser.id).maybeSingle(),
   client.from("plan_history").select("*").eq("plan_id",PLAN_ID).eq("user_id",currentUser.id).order("revision_no",{ascending:true})
  ]);
  const err=p.error||t.error||e.error||r.error||h.error;if(err){statusEl.className="error";statusEl.textContent="DB 조회 실패: "+err.message;return}
+ if(!p.data){
+  currentPlan=null;allTasks=[];executions=[];
+  document.querySelector("#plan").innerHTML='<div class="card">이 계정에 연결된 Plan이 없습니다.</div>';
+  document.querySelector("#planHistory").innerHTML="";
+  document.querySelector("#tasks").innerHTML="";
+  document.querySelector("#executions").innerHTML="";
+  document.querySelector("#metrics").innerHTML="";
+  document.querySelector("#execTask").innerHTML="";
+  document.querySelector("#taskSuggestions").innerHTML="";
+  document.querySelector("#reviewStatus").textContent="저장된 개선점이 없습니다.";
+  statusEl.className="ok";statusEl.textContent="이 계정의 Plan 0개 · Task 0개 · 실행기록 0개";
+  return;
+ }
  currentPlan=p.data; allTasks=t.data||[]; const ids=new Set(allTasks.map(x=>x.id)); executions=(e.data||[]).filter(x=>ids.has(x.task_id));
  const suggestions=[...new Set(allTasks.flatMap(t=>[t.title,t.tag]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ko"));
  document.querySelector("#taskSuggestions").innerHTML=suggestions.map(v=>`<option value="${esc(v)}"></option>`).join("");
