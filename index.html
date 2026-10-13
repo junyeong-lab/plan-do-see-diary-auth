@@ -325,7 +325,7 @@ exportBtn.addEventListener("click",async ()=>{
  const tables=["plans","plan_history","tasks","execution_records","task_completions","reviews","t07_study_settings","t07_rule_changes"];
  const exported={exported_at:new Date().toISOString(),time_zone:"Asia/Seoul",tables:{}};
  for(const table of tables){
-   const {data,error}=await client.from(table).select("*");
+   const {data,error}=await client.from(table).select("*").eq("user_id",currentUser.id);
    if(error)return alert(`${table} 내보내기 실패: ${error.message}`);
    exported.tables[table]=data||[];
  }
