@@ -34,6 +34,7 @@ button{padding:7px 10px;border:1px solid #bbb;border-radius:8px;background:#fff;
 <div class="notice authrow"><span>로그인한 사용자 본인의 기록만 표시됩니다.</span><span><span id="userEmail"></span> <button type="button" id="logoutBtn">로그아웃</button></span></div>
 <div id="status">DB에서 불러오는 중...</div>
 <p><button type="button" id="exportBtn">전체 데이터 내보내기 (JSON)</button></p>
+<details><summary>계정 및 내 자료 영구 삭제</summary><p>계정을 삭제하면 이 계정의 Plan·Task·실행 기록·연구 설정·규칙 변경 기록이 함께 영구 삭제되며 복구할 수 없습니다. 필요한 경우 먼저 JSON 파일로 내보내세요.</p><button type="button" id="deleteAccountBtn">내 계정과 모든 자료 영구 삭제</button></details>
 
 <section class="panel"><h2>PLAN</h2>
 <div id="plan"></div>
@@ -419,6 +420,18 @@ signupBtn.addEventListener("click",async()=>{
  }
  if(data.session) await showLoggedIn(data.user);
  else showLoggedOut("가입 요청을 처리했습니다. 확인 이메일을 받았다면 인증 후 로그인해주세요.");
+});
+deleteAccountBtn.addEventListener("click",async()=>{
+ if(!currentUser)return;
+ if(!confirm("정말로 계정과 모든 기록을 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."))return;
+ const typed=prompt("영구 삭제하려면 삭제를 입력하세요.");
+ if(typed!=="삭제")return;
+ deleteAccountBtn.disabled=true;
+ const {error}=await client.rpc("t07_delete_my_account");
+ deleteAccountBtn.disabled=false;
+ if(error)return alert("계정 삭제 실패: "+error.message);
+ await client.auth.signOut();
+ showLoggedOut("계정과 관련 자료가 영구 삭제되었습니다.");
 });
 logoutBtn.addEventListener("click",async()=>{
  await client.auth.signOut();
