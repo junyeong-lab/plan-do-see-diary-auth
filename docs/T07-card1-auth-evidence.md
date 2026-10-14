@@ -5,7 +5,7 @@
 - 서비스: Supabase Auth
 - 클라이언트 라이브러리: `@supabase/supabase-js` 2.x
 - 근거: `index.html`의 `https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2`
-- 참고: 2.x는 메이저 버전 범위이며 정확한 패치 버전 고정은 아님
+- 참고: 2.x는 메이저 버전 범위이며 배포 소스는 2.117.3으로 고정함
 
 ## ② 선택 이유와 대안 (C93)
 - 현재 구현의 설계 이유: 비밀번호 저장·검증을 자체 구현하지 않고 Supabase Auth에 맡기며, 사용자별 접근은 PostgreSQL RLS로 제한
@@ -51,3 +51,15 @@
 
 ## 비밀정보 취급
 이 문서에는 비밀번호, 세션 토큰, 서비스 역할 키를 기재하지 않음.
+
+
+## 2026-10-14 추가 실행 검증 (최신 반영)
+- Gmail/Naver 본인 자료와 타인 자료 격리: PowerShell 18/18 PASS. 각 계정 본인 GET 200, 상대 GET/PATCH/DELETE 404.
+- 비로그인 GET 401, URL·헤더 소유자 위조 404, 두 사용자 데이터 변경 전후 동일.
+- 글로벌 로그아웃 이후 동일 JWT: GET 200→401. 비밀번호 변경 이후 동일 JWT: GET 200→404(RLS 차단), 임시 비밀번호 변경·복원 7/7 PASS.
+- 첫 화면 비로그인 시크릿 캡처, 5일 집계 캡처, 계정 삭제 안내 캡처 확보.
+- T07 C78: T06 최종 커밋을 T07 Git 부모로 연결, GitHub compare merge_base 일치.
+- CDN SDK 버전은 `@supabase/supabase-js@2.117.3`으로 고정.
+- 가입 성공 뒤 숨겨진 비밀번호 입력창 내용도 삭제하도록 소스 보완.
+- 별도 레거시 `pds_diary` 테이블의 공개 SELECT는 restrictive RLS로 차단했고, anon 조회 0건 확인.
+- 요청 본문에 포함된 비밀번호는 TLS로 전송되지만 제출 증빙에 복사하지 않음. 원문을 안전하게 보관하거나 원문 로그를 남기지 않음.
