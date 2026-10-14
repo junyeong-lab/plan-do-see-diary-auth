@@ -1,86 +1,89 @@
-# SKT ALEPH T07 — 인증 구현 설명서 및 확인 기록
+# SKT ALEPH T07 카드 2~5 — 인증·권한·5일 연구 검증
+
+검증 기준: 2026-10-15. **공개 문서에는 비밀번호 원문·저장 해시 전체·JWT·세션/쿠키 값을 싣지 않습니다.** 실제 bcrypt 저장값은 비공개 ZIP으로만 제한 공유합니다.
 
 ## ① 무엇으로 붙였나
-- Supabase Auth(이메일·비밀번호), supabase-js 2.x, PostgreSQL RLS.
-- 서버 측 소유권 및 HTTP 응답 검증 경로: `api/secure-plan.js` (검증 UI: `t07-security-check.html`).
-- 사용자는 JWT access token 및 refresh token 기반으로 인식한다.
+- **Supabase Auth**, `@supabase/supabase-js@2.117.3` (프런트), Supabase PostgreSQL Row Level Security, JWT access/refresh token.
+- 이메일·비밀번호 가입은 `index.html` `signUp()`, 로그인은 `signInWithPassword()`, 로그아웃은 `signOut()`. 토큰 발급과 비밀번호 해시는 Supabase Auth에 위임했습니다.
+- `api/secure-plan.js`: 비로그인 401, 본인 Plan GET 200, 타 계정 Plan GET/PATCH/DELETE 404를 검증하는 서버 경로. 실제 주인 판정은 JWT와 Supabase RLS 정책을 함께 사용합니다.
 
-## ② 왜 골랐나
-- 비밀번호 저장·해시·솔트·로그인 처리를 직접 구현하지 않고 검증된 Supabase Auth에 위임해 실수를 줄이고, RLS로 자료 소유권을 데이터베이스에서 제한하기 위함.
-- DB의 저장값 두 개는 bcrypt(`$2a$10$` 형식, 각 60자), 서로 다름. 사용자가 두 계정에 같은 비밀번호를 사용했다고 확인함. 해시/비밀번호 원문은 공개 소스 및 제출문에 넣지 않음.
+## ② 왜 이 방법을 골랐나
+- 비밀번호 해시, salt, JWT 서명, 인증의 기본 동작을 직접 구현할 때 발생할 수 있는 오류를 줄이기 위해 전문 인증 서비스를 선택했습니다.
+- DB의 `auth.users.encrypted_password`: bcrypt `$2a$10$` 형식(60자), 같은 원문 비밀번호의 두 계정에 서로 다른 해시 저장을 확인했습니다.
+- `t07_password_epoch` 및 `t07_token_is_current()`: 비밀번호 변경 전에 발급된 JWT는 보호된 테이블을 조회하지 못하도록 RLS를 보완했습니다.
+- 비밀번호는 **TLS를 통한 로그인 요청 본문에 전송될 수 있으며**, 이 사실을 숨기지 않습니다. 캡처·로그·제출문에서만 민감한 본문을 제외하거나 마스킹합니다.
 
-## ③ 어디를 고쳤나 (가입·로그인·로그아웃·조회)
-- 가입: `index.html` — `client.auth.signUp`.
-- 로그인: `index.html` — `client.auth.signInWithPassword`, `getSession`, `showLoggedIn`.
-- 로그아웃: `index.html` — `client.auth.signOut`, `onAuthStateChange`.
-- 조회: `index.html` — `load()`, `client.from('plans'/'tasks'/...)`, `eq('user_id', currentUser.id)`; PostgreSQL `pg_policies`의 8개 테이블 주인 조건 `auth.uid()=user_id`.
-- 보호 HTTP 엔드포인트: `api/secure-plan.js` (GET/PATCH/DELETE, 비로그인 401, 본인 조회 200, 남의 Plan 404). 원래의 Supabase PostgREST 요청은 RLS 필터에 따라 200+빈 목록을 반환할 수도 있으므로 두 경로를 혼동하지 않음.
-- JSON 내보내기: `index.html` `exportBtn` (8개 테이블).
-- 자기 계정 및 자료 삭제: `index.html`의 영구 삭제 메뉴와 Supabase `t07_delete_my_account` 함수.
+## ③ 무엇을 어디에 고쳤나
+| 동작 | 파일·구현 |
+|---|---|
+| 가입 | `index.html` `signupBtn`, `client.auth.signUp()` |
+| 로그인 | `index.html` `loginBtn`, `signInWithPassword()` |
+| 로그인 상태 | `index.html` `getSession()`, `showLoggedIn()`, `onAuthStateChange()` |
+| 로그아웃 | `index.html` `logoutBtn`, `signOut()` |
+| 자기 자료 조회 | `index.html` `load()` 및 `user_id` 필터 |
+| 사용자 Plan 선택 | `index.html` `#planChooser`·`#activePlanSelect` (여러 Plan을 한 계정에서 선택) |
+| DB 접근제어 | `public` 8개 업무 테이블의 `t07_active_owner`: `auth.uid() = user_id`와 `t07_token_is_current()` |
+| 동일 주소 HTTP 차단 | `api/secure-plan.js` 및 `t07-security-check.html` |
+| JSON 내보내기 | `index.html` `exportBtn`, 8개 테이블 |
+| 계정 삭제 안내·함수 | `index.html` 삭제 메뉴 및 `t07_delete_my_account()` |
+| 연구 합계·평균 | `index.html` `#studyMetrics`, 실제 실행 기록과 예상시간 대조 |
 
-## ④ 안 열리는 것을 확인한 기록
-- 사용자 제공 캡처: 비로그인 시크릿 창에서 로그인 화면만 표시, PLAN·DO·SEE 비표시.
-- 계정 A(Gmail)에 Plan 2개, 계정 B(Naver)에 Plan 2개 존재. 역할 변경 SQL 쿼리에서 A→B/B→A의 남의 Plan 조회 0개. 양방향 UPDATE/DELETE 시도 후 원본 Plan 1·3·4·5가 모두 그대로 있음을 관리자 조회로 확인.
-- A 로그인 후 `/t07-security-check.html` 자동 실행의 사용자 보고 결과:
-  - 비로그인 `GET /api/secure-plan?id=[타인 ID]` → **401**
-  - 본인 `GET /api/secure-plan?id=[본인 ID]` → **200**
-  - 남의 Plan `GET` → **404**, `PATCH` → **404**, `DELETE` → **404**
-  - 화면 최종 결과 **PASS**. 두 요청의 HTTP 상태는 사용자 제공 실행 결과 기준이며 서버 로그로 독립 재수집한 기록은 아님.
-- **이후 B 로그인 상태의 동일 HTTP 검증도 PowerShell로 완료: A↔B 총 18/18 PASS.**
-- 로그인 200 → 전역 로그아웃 204 → 재로그인 200. 이전 access token 동일 GET 재사용 401(PowerShell 실측). 비밀번호 변경 이전 access token은 RLS 강화 후 404(7/7 PASS).
-- 로그인 요청 헤더/주소에서 비밀번호 원문 없음. 로그인 요청 본문에는 비밀번호가 전달될 수 있으며, 제출 자료에는 절대 포함하지 않음.
+## ④ 안 열리는 것을 확인한 기록 — 성공과 거절
+**실제 실행 결과, 사용자 PC의 PowerShell 파일에서 민감정보 없이 저장한 JSON 기준:**
 
-## ⑤ AI와 나
-- AI에게 맡긴 일: Supabase·GitHub·Vercel 소스/DB/배포 점검, RLS/HTTP 검증 경로 구현, 증빙·집계 정리.
-- 내가 직접 판단한 일: 연구 주제·운동 내용·예상 및 실제 시간·계획 규칙 변경, 실제 로그인/로그아웃/두 계정 확인과 브라우저 검증 실행.
-- 따르지 않은 제안: 검증하지 않은 조건을 '통과'로 적지 않고, 기존 계정을 실제 삭제하지 않음.
+| 검증 | 성공 요청 | 상대·비로그인 거절 |
+|---|---|---|
+| 자기 vs 타인 읽기 A→B | 본인 `GET` 200 | 타인 `GET` 404 |
+| 자기 vs 타인 읽기 B→A | 본인 `GET` 200 | 타인 `GET` 404 |
+| 타인 수정 A→B/B→A | 본인 자료 조회 200 | 상대 `PATCH` 404 |
+| 타인 삭제 A→B/B→A | 본인 자료 조회 200 | 상대 `DELETE` 404 |
+| 비로그인 | 로그인된 사용자 본인 `GET` 200 | 토큰 없는 `GET` 401 |
+| 계정 사칭 | 자기 JWT로 본인 자료 조회 200 | 타인 ID를 URL·헤더에 넣은 요청 404 |
 
-## ⑥ 아직 못 막은 것과 위험
-- C114 로그아웃·비밀번호 변경 뒤 접근 거절은 실측 완료. 실제 60분 경과 후 자연 만료 시험, 로그인 요청/응답/로그 원문 미노출 전수검사는 별도.
-- B→A HTTP 읽기·수정·삭제 404 및 헤더/URL 위조 404는 실측 완료. **요청 본문 user_id 위조도 최신 전용 검증 페이지에 추가했으나 실행 결과는 별도 확보 필요.**
-- 무차별 로그인 시도 방어의 별도 실험, 비밀번호 초기화, 두 번째 인증 수단은 미검증. 계정 탈취에 취약할 수 있음.
-- 과제 평가 기준 C121의 403/404는 전용 `/api/secure-plan`에서 확인됨. 기존 Supabase REST 전체 API가 403/404를 준다는 뜻은 아님.
+- **18/18 PASS**: 양쪽 계정 본인 Plan 조회 200, 타인 GET/PATCH/DELETE 404, URL/헤더 사칭 404, 자료 개수·제목은 거절 전후 동일, 비로그인 401.
+- **로그아웃 동일 토큰**: 같은 요청 주소·같은 GET·같은 이전 JWT로 전후 **200 → 401**, 중간 `POST /auth/v1/logout?scope=global` **204**.
+- **비밀번호 변경 동일 토큰**: 변경 전 GET **200**, 변경 후 같은 JWT GET **404** (RLS), 원래 비밀번호 복원·재로그인 **200**, **7/7 PASS**.
+- **추가된 시험(결과 대기)**: 타인 Plan ID에 URL·`X-User-ID`·PATCH 본문 `user_id`를 동시에 위조하는 요청. `t07-security-check.html`에 추가. 성공한 자기 자료 PATCH/DELETE와 상대 거절의 나란한 기록은 안전한 임시 Plan으로 시험 예정.
+- RLS 자체는 `200 + []`을 반환할 수도 있으므로 HTTP **404가 검증된 대상은 `/api/secure-plan`입니다**.
+- `pds_diary` 레거시 테이블의 공개 조회는 추가 제한 정책으로 차단. 비로그인 역할 쿼리에서 변경 전 1건, 변경 후 0건.
+- Git 18개 커밋 변경사항의 알려진 비밀키/JWT 패턴 검사에 의심 일치 0건. Supabase 인증·감사·REST·엣지 로그 231건 중 JSON형 비밀번호 값/서버 비밀키 패턴 의심 일치 0건. **패턴 기반 검사 결과는 전수 부재 보장이 아닙니다**.
 
-## 5일 연구 결과 (2026-10-09 ~ 10-13, Asia/Seoul)
+## ⑤ AI와 나의 역할
+1. **AI에게 맡긴 일:** GitHub·Supabase·Vercel 코드/DB/배포 점검, 보안검증 페이지와 PowerShell 작성, 보안정책/문서 보완, 증빙 ZIP 구성.
+2. **내가 직접 판단한 일:** 연구 질문·운동 내용·5일 기록·계획 규칙 변경, 실제 PC·브라우저에서 가입/로그인/로그아웃/보안 검증 수행.
+3. **따르지 않은 제안:** 실제 검증이 없는 조건을 완료로 처리하지 않았으며, 운동 기록이 들어 있는 기존 계정을 삭제하지 않았습니다.
+
+## ⑥ 아직 못 막았거나 독립 검증하지 못한 것
+- 비밀번호 변경 시 **T07 앱의 RLS 자료 조회**는 이전 JWT를 차단하는 것이 실측됐지만, Supabase 및 모든 외부 서비스의 JWT 전역 무효화를 의미하지는 않습니다.
+- 서버 로그 전체·Vercel 빌드 파일 전체에 민감정보 원문이 절대 없다는 보장은 하지 않습니다. Vercel 런타임 로그 조회 권한이 403으로 제한되어 있습니다.
+- 비밀번호 무차별 대입 방어, 두 번째 인증 수단, 비밀번호 재설정의 실제 악용 방어는 별도로 완전 검증하지 못했습니다. 계정 공격과 탈취 위험이 남습니다.
+- Supabase 보안 점검에서 내부 트리거 `t07_capture_password_change()`의 익명 EXECUTE 권한 경고가 관찰됐습니다. 외부 RPC가 해당 함수에 접근하지 못하도록 실행 권한 회수가 권장됩니다(연결 도구의 변경 제한으로 아직 미조치).
+- 요청 본문 소유자 위조, 정상 PATCH/DELETE의 추가 실행 결과는 로컬 검증 파일 수령 후 반영해야 합니다.
+
+## T07 5일 실험
+| 날짜 (KST) | 예상분 | 실제분 | 절대오차분 |
+|---|---:|---:|---:|
+| 2026-10-09 | 90 | 90 | 0 |
+| 2026-10-10 | 80 | 80 | 0 |
+| 2026-10-11 | 80 | 80 | 0 |
+| 2026-10-12 | 80 | 60 | 20 |
+| 2026-10-13 | 60 | 60 | 0 |
+| 합계 | **390** | **370** | **20** |
 - 질문: **계획한 운동시간과 실제 운동시간의 차이를 줄일 수 있을까?**
-- 지표: **운동시간 절대오차**, 단위 분, `ABS(실제 운동시간 - 예상 운동시간)`.
-- 예상 90·80·80·80·60분, 실제 90·80·80·60·60분; 절대오차 0·0·0·20·0분.
-- 합계: 예상 **390분**, 실제 **370분**, 절대오차 합계 **20분**, 평균 절대오차 **4.00분**. 실사용 SEE 캡처값과 대조 일치.
-- 2026-10-10 22:23:33(KST), 2일차 뒤/3일차 앞에 규칙 1회 변경: 최초 예상 90분 고정 → 다음 운동 예상시간을 직전 실제 운동시간으로 설정하고 운동 전에 확정. 2일차 예상시간은 운동 후 입력한 사실을 인정하며 예측력 증거로 사용하지 않음.
-- 결측·중복 실행은 집계에서 제외 후 따로 확인, 이상치는 원본 유지, 평균은 소수 둘째 자리 반올림, 한 주 시작 요일 월요일.
-- 사용자가 실제 JSON 파일 다운로드 성공, 8개 테이블 포함 확인. 계정 삭제 안내(복구 불가 및 동반 삭제) 화면 확인, 실제 삭제는 미실행.
+- 지표 및 규칙: 운동시간 절대오차(분), `ABS(실제−예상)`; **평균 절대오차 4.00분**, 실제 SEE 화면과 동일.
+- 계획 규칙은 2일차 종료 뒤·3일차 기록 앞 `2026-10-10 22:23:33 KST`에 1회 변경. 이유는 그날 실제 시간이 변할 수 있고, 2일차 예상이 운동 후 입력됐기 때문입니다.
+- 결측: 표기 후 계산 제외. 중복: 고유 Task/실행 기록 확인 후 한 번 계산. 이상치: 원본 유지·원인 분석. 평균: 소수점 둘째 자리 표시. 주 시작 요일: **월요일**.
+- JSON 8개 테이블 실제 다운로드 확인, 비로그인 첫 화면 및 계정 삭제 안내 화면 캡처 확보.
 
-## T06 최종 소스 계승 (C77/C78)
-- 최종 T06 고정 커밋: `0bf0cc64a3b30283b3c29020e2a667b7f7681f5f`.
-- GitHub Actions가 `-s ours --allow-unrelated-histories` 방식으로 T07의 트리 내용을 유지하면서 T06 최종 커밋을 부모로 연결.
-- T07 GitHub compare 응답: T06 commit → T07 main 은 **ahead**, `behind_by=0`, merge_base가 T06 고정 커밋과 일치. C78 충족.
-- 고정된 최종 T07 커밋 URL은 마지막 소스 수정·배포 검증 후 제출.
+## T06 소스와 공개 제출 조건
+- 최종 T06 commit: `0bf0cc64a3b30283b3c29020e2a667b7f7681f5f`.
+- T07 Git 조상으로 실제 병합돼 GitHub compare `merge_base`가 해당 커밋과 일치하고 `behind_by=0`입니다.
+- 제출 결과물: **https://plan-do-see-diary-auth-ruddy.vercel.app/**
+- 소스: **최종 GitHub 40자리 commit 고정 URL**을 모든 변경·배포 확인 후 제출합니다. 별도 프로젝트 URL은 제출하지 않습니다.
+- 비공개 bcrypt 해시/JSON 원본/사용자 계정 정보는 공개 Git 저장소에 포함하지 않습니다.
 
-## 재현·통과·실패 확인 4줄
-1. **어디로:** 공개 Vercel Plan·Do·See Diary 최종 URL.
-2. **무엇을:** 시크릿 창에서 로그인 화면 확인 → 계정으로 로그인하여 자기 기록/5일 지표 확인 → 전용 보안 검증 경로에서 본인/타인/비로그인 응답 확인(3단계).
-3. **통과:** 비로그인 기록 비노출, 내 운동 5일/390·370·20·4.00분 일치, 보안 검증 화면 401/200/404/404/404.
-4. **실패:** 로그인 전 내 기록 표시, 다른 계정 기록 노출, 집계 불일치 또는 차단 응답 오류.
-
-
-## 2026-10-14 23:16 KST — PowerShell 보안 검증 결과 (실행 증빙)
-- 검사 프로그램: `T07_full_security_validation.ps1`; 제출 ZIP에 비밀값 없는 `T07-safe-results.json` 기록.
-- **18개 항목 중 18개 PASS.** Gmail/Naver 각각 본인 Plan GET 200, 상대방 GET/PATCH/DELETE 모두 404.
-- URL 쿼리 및 `X-User-ID` 헤더 사칭 양방향 404, 비로그인 GET 401, 상호 수정/삭제 시도 전후 계정별 Plan 조회 내용 불변.
-- 로그아웃 동일 요청 실측: **동일 URL/메서드(GET), 동일 이전 JWT**로 로그아웃 전 200 → Supabase 전역 로그아웃 204 → 로그아웃 후 401.
-- 결과 JSON에 토큰/비밀번호 원문 없음. **비밀번호 변경 후 이전 JWT**, 토큰 실시간 만료, 서버 로그 전수검사는 미실시이므로 별도.
-
-## 민감정보 주의
-- 비밀번호 원문, access/refresh token, 쿠키, 서버 서명키 및 service_role 원문을 공개 소스·제출물에 넣지 않음.
-- 제출 캡처의 authorization/cookie/session 식별자는 `[REDACTED]`로 가림.
-
-## 2026-10-14 카드 1~5 최종 점검 보완
-- 최신 앱 SDK: Supabase JS `2.117.3`으로 버전 고정. 비밀번호 로그인 후 숨김 DOM 입력값 초기화.
-- 저장 해시 형식 bcrypt `$2a$10$`, 60자, 동일 비밀번호 두 계정 다른 해시 확인. **전체 해시 값은 오프라인/비공개 제출 증빙에만 기록하고 공개 Git에는 미포함.**
-- 2026-10-14 23:36 KST 실제 C114 재검증: 변경 전 기존 JWT 본인 GET 200, 비밀번호 변경 후 동일 JWT 404, 원래 비밀번호 복원/로그인 200, 총 7/7 PASS.
-- HTTP GET/PATCH/DELETE 상호 차단 및 전후 데이터 불변, 비로그인, 헤더/URL 위조: PowerShell 18/18 PASS.
-- 요청 본문 소유자 사칭 PATCH 검증은 `t07-security-check.html`에 추가해 실행 증빙 대기.
-- 로그 쿼리(보유 데이터 범위): auth_audit 23, auth 52, edge 128, postgrest 28의 총 231건 중 비밀번호 JSON 값/서버 secret 키 패턴 탐지 0건(패턴 기반 점검이지 전수 부재 보장은 아님).
-- GitHub 공개 코드 및 Git commit 18개 변경 패치에 대한 토큰·service_role·secret 관련 패턴 검사: 의심 일치 0건(검사 패턴 범위 내).
-- 별도 `pds_diary` 1건이 익명 조회되는 과거 정책 발견, restrictive SELECT RLS 추가 후 anon 조회 0건 확인.
-- 최종 고정 Git SHA는 마지막 파일 수정 및 Vercel READY 확인 후 제출해야 한다.
+## 재현·통과·실패 네 줄
+1. **어디로:** 위 Vercel 결과물 URL을 새 시크릿 창에서 엽니다.
+2. **무엇을:** 비로그인 첫 화면 → 로그인 후 SEE 5일 자료 확인 → `/t07-security-check.html`에서 소유권 검증.
+3. **통과:** 로그인 전 자료 비공개, 5일 합계 **390/370/20**, 평균 **4.00분**, API 본인 200·타인 404·비로그인 401.
+4. **실패:** 비로그인 기록 노출, 집계 불일치, 권한 검증 FAIL/오류.
