@@ -13,8 +13,10 @@ async function probe(method,id,token){const r=await fetch("/api/secure-plan?id="
 const anon=await probe("GET",foreign,null);lines.push("비로그인 GET → "+anon+" (기대 401)");
 const ownStatus=await probe("GET",ids[0],sess.access_token);lines.push("본인 GET → "+ownStatus+" (기대 200)");
 for(const m of ["GET","PATCH","DELETE"]){const s=await probe(m,foreign,sess.access_token);lines.push("타인 "+m+" → "+s+" (기대 404)");}
+const spoofRes=await fetch("/api/secure-plan?id="+foreign+"&user_id="+encodeURIComponent(sess.user.id),{method:"PATCH",headers:{"Authorization":"Bearer "+sess.access_token,"X-User-ID":sess.user.id,"Content-Type":"application/json"},body:JSON.stringify({title:"UNAUTHORIZED_CHANGE_MUST_NOT_APPLY",user_id:sess.user.id})});
+lines.push("타인 ID + URL/헤더/본문 owner 위조 PATCH → "+spoofRes.status+" (기대 404)");
 const pass=anon===401&&ownStatus===200;
-const statuses=lines.filter(v=>v.includes("타인 ")).every(v=>v.includes("→ 404"));
+const statuses=lines.filter(v=>v.startsWith("타인 ")).every(v=>v.includes("→ 404"))&&spoofRes.status===404;
 lines.push(pass&&statuses?"결과: PASS":"결과: FAIL — 전체 결과 캡처 후 알려주세요");
 out.textContent=lines.join("\n");
 }catch(e){out.textContent=lines.join("\n")+"\n검증 오류: "+String(e.message||e).replace(/Bearer\s+[^\s]+/g,"Bearer [REDACTED]");}finally{btn.disabled=false;}};
