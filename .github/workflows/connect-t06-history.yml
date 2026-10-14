@@ -1,0 +1,31 @@
+name: Connect T06 submission ancestor
+on:
+  push:
+    paths:
+      - '.github/workflows/connect-t06-history.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  join-t06-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Link final T06 commit while preserving T07 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add t06 https://github.com/junyeong-lab/plan-do-see-diary.git
+          git fetch --no-tags t06 0bf0cc64a3b30283b3c29020e2a667b7f7681f5f
+          if git merge-base --is-ancestor 0bf0cc64a3b30283b3c29020e2a667b7f7681f5f HEAD; then
+            echo "T06 ancestor already connected"
+          else
+            git merge --no-ff --allow-unrelated-histories -s ours FETCH_HEAD -m "Preserve T07 and link final T06 submission ancestry"
+            git push origin HEAD:main
+          fi
+          git merge-base --is-ancestor 0bf0cc64a3b30283b3c29020e2a667b7f7681f5f HEAD
