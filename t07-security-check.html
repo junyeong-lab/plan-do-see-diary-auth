@@ -1,0 +1,21 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>T07 소유권 HTTP 검증</title><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><style>body{font:16px system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:1rem}button{font:inherit;padding:12px}pre{white-space:pre-wrap;background:#f3f4f6;padding:16px;border-radius:8px}strong{color:#0a6}</style></head><body><h1>T07 HTTP 소유권 검증</h1><p>메인 페이지에 로그인한 상태로 실행하세요. 인증 토큰·비밀번호를 화면이나 로그에 출력하지 않습니다. 타 계정의 Plan ID에 대해 읽기·수정·삭제를 시도하지만, 차단 시 데이터 변경은 발생하지 않습니다.</p><button id="run">검증 시작</button><pre id="out">실행 전</pre><p><a href="/">메인 페이지 돌아가기</a></p><script>
+const client=supabase.createClient("https://jrjkoierayrsknlhoqlb.supabase.co","sb_publishable_RbOYTnIoLsj7d9YpMEVwmA_GKIFn2KT");
+const out=document.querySelector("#out"),btn=document.querySelector("#run");
+btn.onclick=async()=>{btn.disabled=true;out.textContent="검증 중...";const lines=[];try{
+const sess=(await client.auth.getSession()).data.session;
+if(!sess){out.textContent="로그인 필요: 메인 페이지에서 로그인 후 다시 실행하세요.";return;}
+const {data:own,error}=await client.from("plans").select("id").order("id").limit(20);
+if(error)throw Error("본인 Plan 조회 실패");
+const ids=(own||[]).map(p=>p.id),foreign=[1,4].find(id=>!ids.includes(id));
+if(!ids.length||!foreign){out.textContent="테스트용 계정별 Plan(1,4)이 확인되지 않았습니다.";return;}
+lines.push("본인 Plan 조회: "+ids.length+"건");
+async function probe(method,id,token){const r=await fetch("/api/secure-plan?id="+id,{method,headers:{"Authorization":token?"Bearer "+token:"",...(method==="PATCH"?{"Content-Type":"application/json"}:{})},...(method==="PATCH"?{body:JSON.stringify({title:"SHOULD_NEVER_CHANGE"})}:{})});return r.status;}
+const anon=await probe("GET",foreign,null);lines.push("비로그인 GET → "+anon+" (기대 401)");
+const ownStatus=await probe("GET",ids[0],sess.access_token);lines.push("본인 GET → "+ownStatus+" (기대 200)");
+for(const m of ["GET","PATCH","DELETE"]){const s=await probe(m,foreign,sess.access_token);lines.push("타인 "+m+" → "+s+" (기대 404)");}
+const pass=anon===401&&ownStatus===200;
+const statuses=lines.filter(v=>v.includes("타인 ")).every(v=>v.includes("→ 404"));
+lines.push(pass&&statuses?"결과: PASS":"결과: FAIL — 전체 결과 캡처 후 알려주세요");
+out.textContent=lines.join("\n");
+}catch(e){out.textContent=lines.join("\n")+"\n검증 오류: "+String(e.message||e).replace(/Bearer\s+[^\s]+/g,"Bearer [REDACTED]");}finally{btn.disabled=false;}};
+</script></body></html>
