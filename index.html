@@ -105,7 +105,8 @@ button{padding:7px 10px;border:1px solid #bbb;border-radius:8px;background:#fff;
 <script>
 const SUPABASE_URL = "https://jrjkoierayrsknlhoqlb.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RbOYTnIoLsj7d9YpMEVwmA_GKIFn2KT";
-const client=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY), PLAN_ID=1;
+const client=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+let PLAN_ID=1; // Selected from the signed-in user records
 let allTasks=[], executions=[], currentPlan=null, currentUser=null;
 const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]));
 const fmt=v=>v?new Intl.DateTimeFormat("ko-KR",{timeZone:"Asia/Seoul",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(v)):"-";
@@ -123,6 +124,9 @@ function renderTasks(){
 async function load(){
  if(!currentUser)return;
  const statusEl=document.querySelector("#status");
+ const own=await client.from("plans").select("id").eq("user_id",currentUser.id).order("id",{ascending:true}).limit(1);
+ if(own.error){statusEl.className="error";statusEl.textContent="내 Plan 조회 실패: "+own.error.message;return;}
+ PLAN_ID=own.data?.[0]?.id ?? -1;
  const [p,t,e,r,h]=await Promise.all([
   client.from("plans").select("*").eq("id",PLAN_ID).eq("user_id",currentUser.id).maybeSingle(),
   client.from("tasks").select("*").eq("plan_id",PLAN_ID).eq("user_id",currentUser.id).is("deleted_at",null),
@@ -284,6 +288,7 @@ planAddForm.addEventListener("submit",async ev=>{ev.preventDefault();
  };
  const {data,error}=await client.from("plans").insert(row).select("id").single();
  if(error)return alert("새 Plan 추가 실패: "+error.message);
+ await load();
  alert(`새 Plan #${data.id}을 저장했습니다. 다음 Plan ID에 ${data.id}을 연결할 수 있습니다.`);
 });
 
