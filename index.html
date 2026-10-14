@@ -412,6 +412,8 @@ function showLoggedOut(message=""){
 }
 async function showLoggedIn(user){
  currentUser=user;
+ // Do not retain a plaintext password inside a hidden DOM input.
+ authPassword.value="";
  document.querySelector("#authScreen").style.display="none";
  document.querySelector("#app").style.display="block";
  document.querySelector("#userEmail").textContent=user.email||"로그인 사용자";
