@@ -37,6 +37,18 @@ button{padding:7px 10px;border:1px solid #bbb;border-radius:8px;background:#fff;
 <p><button type="button" id="exportBtn">전체 데이터 내보내기 (JSON)</button></p>
 <details><summary>계정 및 내 자료 영구 삭제</summary><p>계정을 삭제하면 이 계정의 Plan·Task·실행 기록·연구 설정·규칙 변경 기록이 함께 영구 삭제되며 복구할 수 없습니다. 필요한 경우 먼저 JSON 파일로 내보내세요.</p><button type="button" id="deleteAccountBtn">내 계정과 모든 자료 영구 삭제</button></details>
 
+<details class="panel" id="t07SecurityPanel">
+<summary><strong>T07 보안 검증 (테스트 계정 전용)</strong></summary>
+<p class="meta">기존 별도 보안 검증 페이지를 통합했습니다. 비밀번호·JWT는 화면과 결과에 표시하지 않습니다.</p>
+<div class="form">
+<label>상대 테스트 계정 Plan ID<br><input id="securityOtherPlanId" type="number" min="1" step="1" placeholder="상대 계정의 Plan ID"></label>
+<label>상대 테스트 계정 UUID<br><input id="securityOtherUserId" placeholder="상대 계정 user_id" autocomplete="off"></label>
+</div>
+<p class="meta">본인·비로그인 조회 및 상대 계정 GET/PATCH/DELETE·소유자 위조 요청을 검증합니다. 보안 정책이 잘못됐다면 수정/삭제 요청이 실제로 적용될 수 있으므로 테스트용 계정만 사용하세요.</p>
+<button type="button" id="runSecurityCheck">접근통제 검증 실행</button>
+<pre id="securityCheckOutput" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f4f6;border-radius:8px;padding:12px">실행 전</pre>
+</details>
+
 <section class="panel"><h2>PLAN</h2>
 <div id="planChooser"></div>
 <div id="plan"></div>
@@ -470,6 +482,62 @@ deleteAccountBtn.addEventListener("click",async()=>{
 logoutBtn.addEventListener("click",async()=>{
  await client.auth.signOut();
  showLoggedOut("로그아웃되었습니다.");
+});
+// Security verification is now part of index.html, not a second HTML page.
+document.querySelector("#runSecurityCheck").addEventListener("click",async()=>{
+ const output=document.querySelector("#securityCheckOutput");
+ const button=document.querySelector("#runSecurityCheck");
+ const foreignId=Number(document.querySelector("#securityOtherPlanId").value);
+ const otherUserId=document.querySelector("#securityOtherUserId").value.trim();
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ if(!Number.isSafeInteger(foreignId)||foreignId<1||!uuid.test(otherUserId)){
+   output.textContent="상대 계정의 실제 Plan ID와 UUID를 입력하세요.";
+   return;
+ }
+ if(!currentUser||otherUserId===currentUser.id){
+   output.textContent="상대 계정은 현재 로그인 계정과 달라야 합니다.";
+   return;
+ }
+ const {data:{session}}=await client.auth.getSession();
+ if(!session){output.textContent="로그인이 필요합니다.";return;}
+ const {data:owned,error}=await client.from("plans").select("id").limit(100);
+ if(error||!owned?.length){output.textContent="본인 Plan 조회에 실패했습니다.";return;}
+ const ids=owned.map(p=>Number(p.id));
+ if(ids.includes(foreignId)){output.textContent="이 Plan은 본인 소유입니다. 상대 계정 Plan ID를 입력하세요.";return;}
+ if(!confirm("테스트 계정에만 실시하세요. 정책 오류가 있으면 상대 자료가 실제 변경/삭제될 수 있습니다. 계속하시겠습니까?"))return;
+ button.disabled=true;
+ output.textContent="검증 중...";
+ const token=session.access_token;
+ const request=async(method,id,extra={},body)=>{
+  const r=await fetch("/api/secure-plan?id="+id+"&user_id="+encodeURIComponent(otherUserId),{
+   method,cache:"no-store",
+   headers:{...extra,...(method==="PATCH"?{"Content-Type":"application/json"}:{})},
+   ...(method==="PATCH"?{body:JSON.stringify(body)}:{})
+  });
+  return r.status;
+ };
+ const lines=[];
+ try{
+  const anon=await request("GET",foreignId);
+  const own=await request("GET",ids[0],{"Authorization":"Bearer "+token});
+  const foreignGet=await request("GET",foreignId,{"Authorization":"Bearer "+token});
+  lines.push(["비로그인 GET",anon,401],["본인 GET",own,200],["상대 GET",foreignGet,404]);
+  if(foreignGet!==404){
+   output.textContent=lines.map(x=>x[0]+": "+x[1]+" / 기대 "+x[2]).join("\n")+"\n수정·삭제 검사 중단: 상대 읽기 차단 실패";
+   return;
+  }
+  const patch=await request("PATCH",foreignId,{"Authorization":"Bearer "+token},{title:"SHOULD_NEVER_CHANGE"});
+  const del=await request("DELETE",foreignId,{"Authorization":"Bearer "+token});
+  const spoof=await request("PATCH",foreignId,{"Authorization":"Bearer "+token,"X-User-ID":otherUserId},{title:"UNAUTHORIZED_CHANGE_MUST_NOT_APPLY",user_id:otherUserId});
+  lines.push(["상대 PATCH",patch,404],["상대 DELETE",del,404],["주소·헤더·본문 상대 ID 위조 PATCH",spoof,404]);
+  output.textContent=lines.map(x=>x[0]+": HTTP "+x[1]+" / 기대 "+x[2]).join("\n")+
+   "\n결과: "+(lines.every(x=>x[1]===x[2])?"PASS":"FAIL")+
+   "\n상대 자료 불변 여부는 상대 계정에서 따로 확인해야 합니다.";
+ }catch(e){
+  output.textContent="검증 오류: "+String(e?.message||e).replace(/Bearer\s+[^\s]+/gi,"Bearer [MASKED]");
+ }finally{
+  button.disabled=false;
+ }
 });
 client.auth.onAuthStateChange((event,session)=>{
  if(event==="SIGNED_OUT") showLoggedOut("로그아웃되었습니다.");
