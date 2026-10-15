@@ -55,7 +55,7 @@
 
 ## ⑥ 아직 못 막았거나 독립 검증하지 못한 것
 - 비밀번호 변경 시 **T07 앱의 RLS 자료 조회**는 이전 JWT를 차단하는 것이 실측됐지만, Supabase 및 모든 외부 서비스의 JWT 전역 무효화를 의미하지는 않습니다.
-- 서버 로그 전체·Vercel 빌드 파일 전체에 민감정보 원문이 절대 없다는 보장은 하지 않습니다. Vercel 런타임 로그 조회 권한이 403으로 제한되어 있습니다.
+- C113·C46의 공개 소스·Git 전 이력·공개 제출물·최신 Vercel 빌드 로그를 확인했고, 해당 범위에서 원문 비밀값은 발견되지 않았습니다. 모든 시기의 비공개 플랫폼 내부 로그에 비밀값이 절대 존재하지 않는다는 보장은 별도 사안입니다.
 - 비밀번호 무차별 대입 방어, 두 번째 인증 수단, 비밀번호 재설정의 실제 악용 방어는 별도로 완전 검증하지 못했습니다. 계정 공격과 탈취 위험이 남습니다.
 - Supabase 보안 점검에서 내부 트리거 `t07_capture_password_change()`의 익명 EXECUTE 권한 경고가 관찰됐습니다. 외부 RPC가 해당 함수에 접근하지 못하도록 실행 권한 회수가 권장됩니다(연결 도구의 변경 제한으로 아직 미조치).
 - URL·헤더·본문 소유자 위조와 임시 Plan 정상 PATCH/DELETE는 **22/22 PASS로 검증 완료**. 다만 본 테스트는 한 로그인 세션의 보호 API와 반환 데이터를 확인한 것으로 다른 모든 앱/API 경로의 동작을 보장하지 않습니다.
@@ -87,3 +87,10 @@
 2. **무엇을:** 비로그인 첫 화면 → 로그인 후 SEE 5일 자료 확인 → `/t07-security-check.html`에서 소유권 검증.
 3. **통과:** 로그인 전 자료 비공개, 5일 합계 **390/370/20**, 평균 **4.00분**, API 본인 200·타인 404·비로그인 401.
 4. **실패:** 비로그인 기록 노출, 집계 불일치, 권한 검증 FAIL/오류.
+
+## 2026-10-15 — C113/C46 재현 가능한 최종 보안 점검
+- **C113 확인:** 브라우저 `index.html`(사용자 제공 실제 481줄)과 공개 API·Git 이력에 서버용 `service_role`/`sb_secret_` 값, JWT 서명키·실제 JWT 원문 없음. `sb_publishable_`은 공개 클라이언트 키.
+- **C46 확인:** GitHub Actions [full-history audit](https://github.com/junyeong-lab/plan-do-see-diary-auth/actions/runs/38666641793) 성공 — Git 객체 110개/Blob 30개/441,311바이트, 비밀값 패턴 일치 0건. 공개 증빙 ZIP 22개 파일 중 검색 가능한 18개 검사도 검출 0건. SHA-256 `67490fc0821baa1560d763069ab9eea8ec6f5fcbb9feab7b949b2828cf2cf8d2`.
+- **Vercel 확인:** 사용자 계정으로 최신 배포 `6b30763`의 Deploy Logs 전체 확인: 빌드/배포 완료, 비밀 원문 미포함. 같은 배포 Runtime Logs 화면 해당 시간대 기록 없음. 무기한 전체 로그 무결성까지 주장하는 것은 아님.
+- 내부 권한 추가 검증: `public.t07_capture_password_change()`를 anon 및 authenticated가 직접 실행할 권한은 모두 `false`.
+- 검사 절차와 적용 범위: [docs/T07-final-audit.md](./T07-final-audit.md), [tools/t07_secret_audit.py](../tools/t07_secret_audit.py), [.github/workflows/t07-public-secret-audit.yml](../.github/workflows/t07-public-secret-audit.yml).
